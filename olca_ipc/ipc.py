@@ -52,13 +52,40 @@ class Client(IpcProtocol):
             log.error("failed to get all of type %s: %s", model_type, err)
         return cast(list[E], [model_type.from_dict(r) for r in result])
 
-    def get_descriptors(self, model_type: Type[E]) -> list[o.Ref]:
+    def get_descriptors(self, model_type: Type[E], query: str | None = None) -> list[o.Ref]:
         params = {"@type": model_type.__name__}
+        if query:
+            params["query"] = query
         result, err = self.rpc_call("data/get/descriptors", params)
         if err:
             log.error(
                 "failed to get descriptors of type %s: %s", model_type, err
             )
+            return []
+        return [o.Ref.from_dict(r) for r in result]
+
+    def search(self, query: str, model_type: Type[E] | None = None) -> list[o.Ref]:
+        """
+        Search for descriptors using a query string.
+        
+        Args:
+            query: The search query string (required)
+            model_type: Optional model type filter
+            
+        Returns:
+            List of Ref objects matching the search criteria
+        """
+        if not query:
+            log.error("query parameter is required")
+            return []
+            
+        params = {"query": query}
+        if model_type:
+            params["type"] = model_type.__name__.upper()
+            
+        result, err = self.rpc_call("data/search", params)
+        if err:
+            log.error("failed to search: %s", err)
             return []
         return [o.Ref.from_dict(r) for r in result]
 
@@ -78,6 +105,13 @@ class Client(IpcProtocol):
             log.error("failed to get descriptor: %s", err)
             return None
         return o.Ref.from_dict(result)
+    
+    def get_all_descriptors(self) -> list[o.Ref]:
+        result, err = self.rpc_call("data/get/all/descriptors", {})
+        if err:
+            log.error("failed to get all descriptors: %s", err)
+            return []
+        return [o.Ref.from_dict(r) for r in result]
 
     def get_providers(
         self, flow: o.Ref | o.Flow | None = None
@@ -140,6 +174,47 @@ class Client(IpcProtocol):
             log.error("failed to create product system: %s", err)
             return None
         return o.Ref.from_dict(r)
+
+    def update_product_system_links(
+        self,
+        system_id: str,
+        provider_linking: str | None = None,
+        preferred_type: str | None = None,
+        keep_existing: bool = True,
+    ) -> o.ProductSystem | None:
+        """
+        Update the process links of a product system by auto-completing it.
+        
+        Args:
+            system_id: The ID of the product system to update
+            provider_linking: Provider linking strategy ("PREFER_DEFAULTS", "IGNORE_DEFAULTS", "ONLY_DEFAULTS")
+            preferred_type: Preferred process type ("UNIT_PROCESS", "LCI_RESULT", "LCIA_RESULT")
+            keep_existing: Whether to keep existing process links (default: True)
+            
+        Returns:
+            The updated ProductSystem object, or None if the operation failed
+        """
+        if not system_id:
+            log.error("system_id is required")
+            return None
+            
+        params = {
+            "systemId": system_id,
+            "keepExisting": keep_existing,
+        }
+        
+        if provider_linking is not None:
+            params["providerLinking"] = provider_linking
+            
+        if preferred_type is not None:
+            params["preferredType"] = preferred_type
+            
+        result, err = self.rpc_call("data/update/system/links", params)
+        if err:
+            log.error("failed to update product system links: %s", err)
+            return None
+            
+        return o.ProductSystem.from_dict(result)
 
     def delete(self, model: o.RootEntity | o.Ref) -> o.Ref | None:
         if model is None:
